@@ -27,9 +27,33 @@ Render the conversation history above the input bar using default Streamlit UI e
 The message history must scroll independently of the input bar — the input bar stays visible at all times.
 Success criteria (Part B): Sending multiple messages in a row produces context-aware replies (e.g. the model remembers the user’s name from an earlier message). Messages are displayed with correct styling and the input bar remains fixed.
 
+### Part C: Chat Management (25 points)
+Requirements:
+
+Add a New Chat button to the sidebar that creates a fresh, empty conversation and adds it to the sidebar chat list.
+Use the native Streamlit sidebar (st.sidebar) for chat navigation.
+The sidebar shows a scrollable list of all current chats, each displaying a title and timestamp.
+The currently active chat must be visually highlighted in the sidebar.
+Clicking a chat in the sidebar switches to it without deleting or overwriting any other chats.
+Each chat entry must have a ✕ delete button. Clicking it removes the chat from the list. If the deleted chat was active, the app must switch to another chat or show an empty state.
+Success criteria (Part C): Multiple chats can be created, switched between, and deleted independently. The active chat is always visually distinct.
+
+### Part D: Chat Persistence (25 points)
+Requirements:
+
+Each chat session is saved as a separate JSON file inside a chats/ directory. Each file must store at minimum: a chat ID, a title or timestamp, and the full message history.
+On app startup, all existing files in chats/ are loaded and shown in the sidebar automatically.
+Returning to a previous chat and continuing the conversation must work correctly.
+Deleting a chat (✕ button) must also delete the corresponding JSON file from chats/.
+A generated or summarized chat title is acceptable and encouraged. The title does not need to be identical to the first user message.
+Success criteria (Part D): Closing and reopening the app shows all previous chats intact in the sidebar. Continuing a loaded chat works correctly. Deleting a chat removes its file from disk.
+
+
 
 
 **AI Suggestion:** 
+
+
 
 ### Part A Implementation Plan: Page Setup + API Connection (Only)
 Summary
@@ -92,8 +116,85 @@ Current git state:
 
 Modified file: app.py
 
+### Implemented Part C chat management in app.py (line 1).
+
+What now works:
+
+Sidebar New Chat button creates a fresh empty chat and makes it active (app.py (line 130)).
+Sidebar shows all chats in a scrollable list with:
+Title
+Timestamp
+✕ delete button per chat (app.py (line 139)).
+Active chat is visually highlighted using Streamlit button type primary vs secondary (app.py (line 146)).
+Clicking a chat switches to it without overwriting others (app.py (line 173)).
+Deleting active chat switches to another chat, or empty state if none remain (app.py (line 162)).
+Full message history is maintained per chat and sent on each API request for context (app.py (line 201)).
+Main chat history remains in a fixed-height scrollable container while st.chat_input stays at bottom (app.py (line 180), app.py (line 193)).
+Validation:
+
+Syntax check passed (py_compile).
+Streamlit startup smoke test passed.
+
+### Part D Plan: Disk-Persisted Chat Sessions (chats/*.json)
+Summary
+Add file-based persistence so each chat is stored as its own JSON file under chats/, loaded on startup, continued seamlessly, and deleted from disk when removed in UI. Keep existing Part C sidebar UX and active-chat behavior.
+
+Implementation Changes
+Add persistence constants/utilities in app.py:
+CHATS_DIR = Path("chats")
+chat_file_path(chat_id) -> Path using chat_id.json
+save_chat(chat) writes one JSON file per chat
+load_chats() loads all valid *.json from chats/
+delete_chat_file(chat_id) removes the corresponding file if present
+Define/lock JSON shape for each chat file:
+id (string UUID)
+title (string)
+created_at (timestamp string)
+messages (list of {role, content})
+Startup initialization changes:
+Ensure chats/ exists.
+Load chats from disk into st.session_state["chats"].
+If none found, start in empty state (active_chat_id = None) and require New Chat to begin.
+If malformed/incomplete files exist, skip them and show one sidebar warning with skipped count.
+Persist on every mutation:
+New Chat -> create empty chat object and immediately save <chat_id>.json.
+User message append -> save chat file.
+Assistant response append -> save chat file.
+First-message title generation/update -> save chat file.
+Delete flow:
+Clicking ✕ removes chat from session_state and deletes its JSON file.
+If deleted chat was active, switch to first remaining chat or empty state when none remain.
+Keep existing generated title behavior:
+Continue using summarized/truncated first user message (current shorten_title) as title update.
+Public Interfaces / Data Contracts
+Persistent storage location: chats/
+Filename contract: <chat_id>.json
+File contract (minimum fields required on load): id, title, created_at, messages
+Session-state contract:
+st.session_state["chats"] is authoritative in-memory list of loaded chats
+st.session_state["active_chat_id"] identifies selected chat or None
+Test Plan
+Create chat:
+Click New Chat; verify new sidebar entry and new chats/<id>.json.
+Persist/load:
+Send messages, restart app, confirm chats/messages reload automatically.
+Continue prior chat:
+Open existing chat, send another message, verify context still works and file updates.
+Delete:
+Delete inactive and active chats; verify sidebar updates and corresponding JSON file deletion.
+Empty-start behavior:
+With no *.json, app shows empty state until New Chat.
+Bad file handling:
+Add malformed JSON file; app still loads valid chats and shows warning for skipped file(s).
+Assumptions
+Chosen defaults:
+Filename format: chat_id.json
+Empty startup: no auto-created chat (empty state)
+Malformed files: skip and warn (do not crash)
+Existing Part C UI/behavior remains unless needed for persistence integration.
+
 **My Modifications & Reflections:** 
-Part A worked and displayed the hardcoded messages of "Hello!" while giving a hugging face API error. 
+Part A works and displayed the hardcoded messages of "Hello!" while giving a hugging face API error. Part B works, which was verified by asking if the chatbot remembered my name. Part C needed some modifications to the title which was incorrect and needed changes. The rest of the chatbot was correct including a visually distinguishable active chat. Part D saves the chats when deleting and re-opening and also deletes chats off the disk.
 
 ### Task: 2
 **Prompt:** 
