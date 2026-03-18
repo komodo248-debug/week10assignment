@@ -253,11 +253,57 @@ Stored memory is injected into the system prompt of future conversations so the 
 Success criteria: User traits are extracted, displayed in the sidebar, and used to personalize subsequent responses.
 
 
-
-Given this user has a name, preferred language, interests, communication style, favorite topics, or other useful personal preferences. Extract these personal facts as a JSON Object and if none return {}"
+Given this user has a name, preferred language, interests, communication style, favorite topics, or other useful personal preferences. Extract these personal facts as a JSON Object and if none return {}". Personalize your responses towards these traits. 
 
 
 **AI Suggestion:** 
-**My Modifications & Reflections:** 
+Summary
+Refine the existing memory feature so it remains strict explicit-only, while handling name as a multi-value trait stored in JSON and displayed one-per-line. Keep current behavior: extraction after each assistant reply, sidebar memory panel, clear/reset, and memory-based personalization in future responses.
 
+Implementation Changes
+Keep the existing second extraction API call timing (after assistant response) and explicit-only extraction policy.
+Update memory schema behavior:
+Keep name key but store it as a list of strings.
+If no explicit name appears in user text, do not store/update name.
+If new explicit names appear, accumulate unique names (dedupe, preserve order).
+Normalize extraction output for name handling:
+Accept model output as string/list/newline text and normalize to name: [..].
+Reject inferred/non-explicit names using the existing explicit-text filter.
+Keep/strengthen extraction instructions:
+Return JSON object or {} only.
+Explicitly include preferred_language and communication_style when explicitly stated.
+No inference or generated name fallback.
+Sidebar memory display:
+For name list, render each name on a new line in the memory panel.
+Keep other keys displayed as JSON-style values.
+Keep existing Clear Memory control.
+Personalization prompt:
+Continue injecting stored memory into system prompt.
+Ensure personalization references only stored traits (including multi-name list if present).
+Public Interfaces / Data Contract
+memory.json remains a JSON object.
+Trait keys remain: name, preferred_language, interests, communication_style, favorite_topics.
+name value type becomes canonical list-of-strings (["Alice", "Alicia"]), displayed one per line in UI.
+Test Plan
+Explicit name capture:
+User says “My name is Chris” -> name contains ["Chris"].
+Multiple name accumulation:
+Later user says “You can also call me Christopher” -> name becomes ["Chris", "Christopher"].
+No explicit name:
+User message without name -> name unchanged.
+Explicit-only guard:
+Ensure unrelated inferred names are not stored.
+Language/style capture:
+Explicit statements like “I prefer English” / “Keep it concise” update preferred_language and communication_style.
+UI behavior:
+Sidebar memory shows names line-by-line.
+Clear Memory resets memory.json and sidebar state.
+Personalization:
+Subsequent assistant responses reflect stored traits from memory.
+Assumptions
+“Names should be phonetic/realistic” is treated as formatting quality for extracted explicit names only, not generation.
+Existing chat persistence and streaming behavior remain unchanged.
+
+**My Modifications & Reflections:** 
+Had to re-prompt it to make it understand the differences in the name vs interests. Had to slightluy modify, how explictly statements are used vs implicit statements like conversation style. Had to make sure it appened interests to the name, while also changing the conversation style depending on previous chats. I also had to prompt to add an identifier for their preferred language.
 
