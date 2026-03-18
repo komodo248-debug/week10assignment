@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -14,6 +15,7 @@ MAX_TOKENS = 512
 APP_TITLE = "My AI Chat"
 DEFAULT_CHAT_TITLE = "New Chat"
 CHATS_DIR = Path("chats")
+STREAM_RENDER_DELAY_SECONDS = 0.01
 
 
 def get_hf_token() -> str:
@@ -32,7 +34,7 @@ def get_hf_token() -> str:
     return hf_token.strip()
 
 
-def call_hf_router(messages: list[dict[str, str]]) -> str:
+def stream_hf_router(messages: list[dict[str, str]]):
     hf_token = get_hf_token()
 
     headers = {
@@ -43,6 +45,7 @@ def call_hf_router(messages: list[dict[str, str]]) -> str:
         "model": HF_MODEL,
         "messages": messages,
         "max_tokens": MAX_TOKENS,
+        "stream": True,
     }
 
     try:
@@ -51,6 +54,7 @@ def call_hf_router(messages: list[dict[str, str]]) -> str:
             headers=headers,
             json=payload,
             timeout=REQUEST_TIMEOUT_SECONDS,
+            stream=True,
         )
     except requests.exceptions.Timeout as exc:
         raise RuntimeError(
@@ -62,28 +66,62 @@ def call_hf_router(messages: list[dict[str, str]]) -> str:
             "connection and try again."
         ) from exc
 
-    if response.status_code >= 400:
-        details = response.text.strip()
-        if len(details) > 300:
-            details = f"{details[:300]}..."
-        raise RuntimeError(
-            f"Hugging Face API error ({response.status_code}). "
-            f"{details or 'No additional details provided.'}"
-        )
-
     try:
-        data = response.json()
-    except ValueError as exc:
-        raise RuntimeError(
-            "Received an invalid JSON response from Hugging Face."
-        ) from exc
+        if response.status_code >= 400:
+            details = response.text.strip()
+            if len(details) > 300:
+                details = f"{details[:300]}..."
+            raise RuntimeError(
+                f"Hugging Face API error ({response.status_code}). "
+                f"{details or 'No additional details provided.'}"
+            )
 
-    try:
-        return data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError(
-            "Received an unexpected response format from Hugging Face."
-        ) from exc
+        saw_text_chunk = False
+        for line in response.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            if not line.startswith("data:"):
+                continue
+
+            data_str = line[len("data:") :].strip()
+            if not data_str:
+                continue
+            if data_str == "[DONE]":
+                break
+
+            try:
+                event = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+
+            token_text = ""
+            choices = event.get("choices")
+            if isinstance(choices, list) and choices:
+                first_choice = choices[0]
+                if isinstance(first_choice, dict):
+                    delta = first_choice.get("delta")
+                    if isinstance(delta, dict):
+                        content = delta.get("content")
+                        if isinstance(content, str):
+                            token_text = content
+                    if not token_text:
+                        message = first_choice.get("message")
+                        if isinstance(message, dict):
+                            content = message.get("content")
+                            if isinstance(content, str):
+                                token_text = content
+
+            if token_text:
+                saw_text_chunk = True
+                time.sleep(STREAM_RENDER_DELAY_SECONDS)
+                yield token_text
+
+        if not saw_text_chunk:
+            raise RuntimeError(
+                "Received an unexpected streaming response format from Hugging Face."
+            )
+    finally:
+        response.close()
 
 
 def new_chat() -> dict[str, object]:
@@ -283,9 +321,9 @@ if user_prompt and active_chat is not None:
         active_chat["title"] = shorten_title(user_prompt)
     save_chat(active_chat)
 
-    with st.spinner("Calling Hugging Face API..."):
+    with st.chat_message("assistant"):
         try:
-            assistant_text = call_hf_router(active_chat["messages"])
+            assistant_text = st.write_stream(stream_hf_router(active_chat["messages"]))
         except RuntimeError as exc:
             st.error(str(exc))
         else:

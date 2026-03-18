@@ -198,12 +198,65 @@ Part A works and displayed the hardcoded messages of "Hello!" while giving a hug
 
 ### Task: 2
 **Prompt:** 
+
+Goal: Display the model’s reply token-by-token as it is generated instead of waiting for the full response.
+
+Requirements
+Use the stream=True parameter in your API request and handle the server-sent event stream.
+In Streamlit, use native Streamlit methods such as st.write_stream() or manually update a placeholder with st.empty() as chunks arrive.
+The full streamed response must be saved to the chat history once streaming is complete.
+Hint: Add stream=True to your request payload and set stream=True on the requests.post() call. The response body will be a series of data: lines in SSE format.
+
+Note: Very small models such as meta-llama/Llama-3.2-1B-Instruct may stream so quickly that the output appears to arrive all at once. If your app is correctly receiving multiple streamed chunks but the effect is too fast to notice, you are required to add a very short delay between rendering chunks so the streaming behavior is visible in the UI.
+
+Success criteria: Responses appear incrementally in the chat interface and are correctly saved to history.
+
+
 **AI Suggestion:** 
+
+Implemented streaming replies in app.py (line 1).
+
+What changed:
+
+Switched API call to streaming mode:
+Payload now includes "stream": True (app.py (line 44))
+requests.post(..., stream=True) (app.py (line 52))
+Added SSE parsing generator stream_hf_router(...) that reads data: lines and yields token chunks (app.py (line 37)).
+Added short render delay so streaming is visibly incremental:
+STREAM_RENDER_DELAY_SECONDS = 0.01 + time.sleep(...) (app.py (line 18), app.py (line 116)).
+Rendered assistant response incrementally with native Streamlit:
+st.write_stream(stream_hf_router(...)) (app.py (line 326)).
+Saved full streamed result to chat history and disk after stream completes:
+append assistant message + save_chat(...) (app.py (line 330)).
+Validation run:
+
+Syntax check passed (py_compile)
+Streamlit startup smoke check passed
+
 **My Modifications & Reflections:** 
+Responses appeared incremently in the chat interface correctly saved to history. No changes needed. 
 
 
 ### Task: 3
+
 **Prompt:** 
+
+Goal: Extract and store user preferences from conversations, then use them to personalize future responses.
+
+Requirements
+After each assistant response, make a second lightweight API call asking the model to extract any personal traits or preferences mentioned by the user in that message.
+Extracted traits are stored in a memory.json file. Example categories might include name, preferred language, interests, communication style, favorite topics, or other useful personal preferences.
+The sidebar displays a User Memory expander panel showing the currently stored traits.
+Include a native Streamlit control to clear/reset the saved memory.
+Stored memory is injected into the system prompt of future conversations so the model can personalize responses.
+
+Success criteria: User traits are extracted, displayed in the sidebar, and used to personalize subsequent responses.
+
+
+
+Given this user has a name, preferred language, interests, communication style, favorite topics, or other useful personal preferences. Extract these personal facts as a JSON Object and if none return {}"
+
+
 **AI Suggestion:** 
 **My Modifications & Reflections:** 
 
